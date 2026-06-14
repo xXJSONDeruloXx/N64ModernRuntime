@@ -6,10 +6,13 @@
 #include "recomp.h"
 
 namespace recomp {
-    // 512GB (kseg0 size)
+    // 512MB (kseg0 size) - actual usable RDRAM
     constexpr size_t mem_size = 512ULL * 1024ULL * 1024ULL;
-    // 4GB (the full address space)
+    // 4GB (the full address space) - mmap'd but mostly protected
     constexpr size_t allocation_size = 4096ULL * 1024ULL * 1024ULL;
+    
+    // RDRAM base addresses
+    constexpr uint64_t rdram_offset_mask = 0xFFFFFFFF80000000ULL;
     // We need a place in rdram to hold the PI handles, so pick an address in extended rdram
     constexpr int32_t cart_handle = 0x80800000;
     constexpr int32_t drive_handle = (int32_t)(cart_handle + sizeof(OSPiHandle));
