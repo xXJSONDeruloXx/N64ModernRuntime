@@ -1,8 +1,6 @@
 #ifndef __RSP_H__
 #define __RSP_H__
 
-#include <cstdio>
-
 #include "rsp_vu.hpp"
 #include "recomp.h"
 #include "ultramodern/ultra64.h"
@@ -94,9 +92,23 @@ static inline void RSP_MEM_H_STORE(uint32_t offset, uint32_t addr, uint32_t val)
 #define DO_DMA_READ(rd_len) dma_rdram_to_dmem(rdram, dma_mem_address, dma_dram_address, (rd_len))
 #define DO_DMA_WRITE(wr_len) dma_dmem_to_rdram(rdram, dma_mem_address, dma_dram_address, (wr_len))
 
+static inline uint32_t normalize_rsp_dram_addr(uint32_t dram_addr) {
+    constexpr uint32_t kKseg0Base = 0x80000000u;
+    constexpr uint32_t kKseg1Base = 0xA0000000u;
+    constexpr uint32_t kKseg2Base = 0xC0000000u;
+
+    if (dram_addr >= kKseg0Base && dram_addr < kKseg1Base) {
+        dram_addr &= 0x1FFFFFFFu;
+    } else if (dram_addr >= kKseg1Base && dram_addr < kKseg2Base) {
+        dram_addr &= 0x1FFFFFFFu;
+    }
+
+    return dram_addr;
+}
+
 static inline void dma_rdram_to_dmem(uint8_t* rdram, uint32_t dmem_addr, uint32_t dram_addr, uint32_t rd_len) {
     rd_len += 1; // Read length is inclusive
-    dram_addr &= 0xFFFFF8;
+    dram_addr = normalize_rsp_dram_addr(dram_addr) & 0xFFFFF8;
     assert(dmem_addr + rd_len <= 0x1000);
     for (uint32_t i = 0; i < rd_len; i++) {
         RSP_MEM_B(i, dmem_addr) = MEM_B(0, (int64_t)(int32_t)(dram_addr + i + 0x80000000));
@@ -105,7 +117,7 @@ static inline void dma_rdram_to_dmem(uint8_t* rdram, uint32_t dmem_addr, uint32_
 
 static inline void dma_dmem_to_rdram(uint8_t* rdram, uint32_t dmem_addr, uint32_t dram_addr, uint32_t wr_len) {
     wr_len += 1; // Write length is inclusive
-    dram_addr &= 0xFFFFF8;
+    dram_addr = normalize_rsp_dram_addr(dram_addr) & 0xFFFFF8;
     assert(dmem_addr + wr_len <= 0x1000);
     for (uint32_t i = 0; i < wr_len; i++) {
         MEM_B(0, (int64_t)(int32_t)(dram_addr + i + 0x80000000)) = RSP_MEM_B(i, dmem_addr);

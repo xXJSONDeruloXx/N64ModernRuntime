@@ -363,12 +363,31 @@ recomp_func_t* recomp::overlays::get_func_by_section_rom_function_vram(uint32_t 
 
 extern "C" recomp_func_t * get_function(int32_t addr) {
     auto func_find = func_map.find(addr);
-    if (func_find == func_map.end()) {
-        fprintf(stderr, "Failed to find function at 0x%08X\n", addr);
-        assert(false);
-        std::exit(EXIT_FAILURE);
+    if (func_find != func_map.end()) {
+        return func_find->second;
     }
-    return func_find->second;
+    
+    // Function not found in loaded overlays. Search all sections for a matching function.
+    // This handles cases where LOOKUP_FUNC is called with an address from an overlay
+    // that hasn't been loaded yet (common with shared VRAM overlays).
+    for (size_t section_index = 0; section_index < sections_info.num_code_sections; section_index++) {
+        SectionTableEntry* section = &sections_info.code_sections[section_index];
+        
+        // Check if this address falls within this section's VRAM range
+        if (addr >= section->ram_addr && addr < section->ram_addr + section->size) {
+            int32_t func_offset = addr - section->ram_addr;
+            ::FuncEntry entry;
+            if (recomp::overlays::get_func_entry_by_section_index_function_offset(static_cast<uint16_t>(section_index), func_offset, entry)) {
+                // Function found in an unloaded overlay - call it directly.
+                // This handles shared VRAM overlays that may be called before explicit loading.
+                return entry.func;
+            }
+        }
+    }
+    
+    fprintf(stderr, "Failed to find function at 0x%08X\n", addr);
+    assert(false);
+    std::exit(EXIT_FAILURE);
 }
 
 std::unordered_map<recomp_func_t*, recomp::overlays::BasePatchedFunction> recomp::overlays::get_base_patched_funcs() {

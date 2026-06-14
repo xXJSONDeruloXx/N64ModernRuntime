@@ -8,6 +8,7 @@
 #include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/files.hpp"
+#include "librecomp/overlays.hpp"
 #include <ultramodern/ultra64.h>
 #include <ultramodern/ultramodern.hpp>
 
@@ -31,6 +32,20 @@ constexpr uint32_t k1_to_phys(uint32_t addr) {
 
 constexpr uint32_t phys_to_k1(uint32_t addr) {
     return addr | 0xA0000000;
+}
+
+static void maybe_load_overlay_section(uint32_t rom_offset, gpr rdram_address) {
+    const auto& sections_by_rom = recomp::overlays::get_vrom_to_section_map();
+    auto find_it = sections_by_rom.find(rom_offset);
+    if (find_it == sections_by_rom.end()) {
+        return;
+    }
+
+    if (static_cast<uint32_t>(rdram_address) != recomp::overlays::get_section_ram_addr(find_it->second)) {
+        return;
+    }
+
+    load_overlays(rom_offset, static_cast<int32_t>(rdram_address), 1);
 }
 
 extern "C" void __osPiGetAccess_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -272,6 +287,7 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
     if (direction == 0) {
         if (physical_addr >= recomp::rom_base) {
             // read cart rom
+            maybe_load_overlay_section(physical_addr - recomp::rom_base, rdram_address);
             recomp::do_rom_read(rdram, rdram_address, physical_addr, size);
 
             // Send a message to the mq to indicate that the transfer completed

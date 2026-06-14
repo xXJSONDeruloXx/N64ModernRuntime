@@ -1,10 +1,34 @@
 #include <cassert>
-#include <cstring>
 #include <cinttypes>
-
+#include <cstdio>
+#include <cstring>
 #include "rsp.hpp"
 
 static recomp::rsp::callbacks_t rsp_callbacks {};
+namespace {
+constexpr uint32_t kRspDmemTaskOffset = 0xFC0;
+constexpr uint32_t kRspDefaultUcodeDataSize = 0xF80;
+constexpr uint32_t kOsTaskYielded = 0x0001;
+
+OSTask physicalize_task(const OSTask* task) {
+    OSTask ret = *task;
+
+    ret.t.ucode = normalize_rsp_dram_addr(ret.t.ucode);
+    ret.t.ucode_data = normalize_rsp_dram_addr(ret.t.ucode_data);
+    ret.t.dram_stack = normalize_rsp_dram_addr(ret.t.dram_stack);
+    ret.t.output_buff = normalize_rsp_dram_addr(ret.t.output_buff);
+    ret.t.output_buff_size = normalize_rsp_dram_addr(ret.t.output_buff_size);
+    ret.t.data_ptr = normalize_rsp_dram_addr(ret.t.data_ptr);
+    ret.t.yield_data_ptr = normalize_rsp_dram_addr(ret.t.yield_data_ptr);
+
+    if ((ret.t.flags & kOsTaskYielded) != 0) {
+        ret.t.ucode_data = ret.t.yield_data_ptr;
+        ret.t.ucode_data_size = ret.t.yield_data_size;
+    }
+
+    return ret;
+}
+}
 
 void recomp::rsp::set_callbacks(const callbacks_t& callbacks) {
     rsp_callbacks = callbacks;
@@ -42,14 +66,20 @@ bool recomp::rsp::run_task(uint8_t* rdram, const OSTask* task) {
         return false;
     }
 
+    OSTask physical_task = physicalize_task(task);
+
     // Load the OSTask into DMEM
-    memcpy(&dmem[0xFC0], task, sizeof(OSTask));
+    memcpy(&dmem[kRspDmemTaskOffset], &physical_task, sizeof(OSTask));
 
     // Load the ucode data into DMEM
-    dma_rdram_to_dmem(rdram, 0x0000, task->t.ucode_data, 0xF80 - 1);
+    uint32_t ucode_data_size = physical_task.t.ucode_data_size;
+    if (ucode_data_size == 0 || ucode_data_size > kRspDefaultUcodeDataSize) {
+        ucode_data_size = kRspDefaultUcodeDataSize;
+    }
+    dma_rdram_to_dmem(rdram, 0x0000, physical_task.t.ucode_data, ucode_data_size - 1);
 
     // Run the ucode
-    RspExitReason exit_reason = ucode_func(rdram, task->t.ucode);
+    RspExitReason exit_reason = ucode_func(rdram, physical_task.t.ucode);
 
     // Ensure that the ucode exited correctly
     if (exit_reason != RspExitReason::Broke) {
